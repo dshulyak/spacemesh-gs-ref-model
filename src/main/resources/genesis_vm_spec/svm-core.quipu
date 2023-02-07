@@ -152,6 +152,13 @@ module svm_core imports commons, transactions, global_state {
     fun execSelfSpawn(tx: SelfSpawnTx): void {
       //checking correctness of provided template address
       //the new account will the an instance of this template
+
+      // NOTE(ds) different from the implementation
+      // in the implementation every transaction must have nonce >= account.next_nonce
+      // and have enough gas to cover intrinsic cost
+      // if tx satisfies 2 requirements - it will be executed
+      // and if account already exists - self-spawn will fail but consume gas
+
       val template: Template = switch self.globalState().get(tx.template) {
         case None: throw Error("template not found")
         case Some(template: Template): template
@@ -190,6 +197,8 @@ module svm_core imports commons, transactions, global_state {
       val requiredBalance: CoinAmount = parsedPayload.maxGas * parsedPayload.gasPrice
 
       //checking if current account balance can cover this transaction
+      // in the implementation there is a difference between intrinsic gas and final max gas
+      // transaction will be executed and may fail if it covers intrinsic gas, but not max gas
       if (stubBalance < requiredBalance) {
         throw Error("insufficient balance for account: address=$principal, required amount was: $requiredBalance")
       }
@@ -198,6 +207,7 @@ module svm_core imports commons, transactions, global_state {
       val initialShapeOfMutableState: MS = templateAPI.accountCreationHandler(principal, parsedImmutableState, principal)
 
       //instead of real gas metering we use hardcoded-gas table in Genesis-SVM
+      // irrelevant for golang implementation, max gas is always consumed
       val gasConsumed: Gas = self.estimateGas(tx, parsedPayload)
 
       //aborting if consumed gas exceeds max gas (max gas was declared by the transaction)
@@ -262,6 +272,7 @@ module svm_core imports commons, transactions, global_state {
       val addressOfNewAccount: Address = self.cryptoHashPure(Seq(tx.template, parsedPayload.callArgs))
 
       //account at this address must not be initialized yet
+      // in the implementation gas will be charged if spawned account already exists
       val stubBalance: CoinAmount = switch globalState.get(addressOfNewAccount) {
         case None: 0 //no such account yet
         case Some(template: Template): throw Error("expected a stub, found a template: address=$principal")
@@ -349,6 +360,9 @@ module svm_core imports commons, transactions, global_state {
       val requiredBalance: CoinAmount = principalTemplateAPI.maxSpend(tx) + parsedPayload.maxGas * parsedPayload.gasPrice
 
       //checking if principal account balance can cover this transaction
+
+      // different from the implementation
+      // implementation will consume gas even on failure
       if (principalAccount.balance < requiredBalance) {
         throw Error("insufficient balance for account: address=${tx.principal}, required amount was: $requiredBalance")
       }
@@ -363,6 +377,7 @@ module svm_core imports commons, transactions, global_state {
       }
 
       //checking if required method is defined by the corresponding template
+      // gas is charged if verification passed, but template is not available
       if (! principalTemplateAPI.instanceMethods().contains(tx.methodSelector)) {
         throw Error("instance method ${tx.methodSelector} not defined for account ${tx.principal} with template ${principalAccount.template}")
       }
@@ -391,6 +406,8 @@ module svm_core imports commons, transactions, global_state {
 
       //if the actual consumption of gas was less then maxGas then we process pay-back here
       //caution: because real gas metering is not working in Genesis-SVM, we use gasConsumed value from the estimation, not from the actual metering
+
+      // NOTE(ds) this chunk is irrelevant for golang implementation
       if (gasConsumed < parsedPayload.maxGas) {
         val principalBalanceAfterCall: CoinAmount = self.globalState().get(tx.principal).balance
         val principalMutableStateAfterCall: MSP = self.globalState().get(tx.principal).mutableState
@@ -451,6 +468,7 @@ module svm_core imports commons, transactions, global_state {
       }
 
       //checking if target account is already existing in the global state
+      // gas is charged regardless of the existance of the target account
       val targetAccount: Account[ISP, MSP] = switch self.globalState().get(tx.targetAccount) {
         case None: throw Error("account not found: ${tx.targetAccount}")
         case Some(template: Template): throw Error("expected an account, found a template")
@@ -497,6 +515,7 @@ module svm_core imports commons, transactions, global_state {
 
       //if the actual consumption of gas was less then maxGas then we process pay-back here
       //caution: because real gas metering is not working in Genesis-SVM, we use gasConsumed value from the estimation, not from the actual metering
+      // irrelevant for golang implementation
       if (gasConsumed < parsedPayload.maxGas) {
         val principalBalanceAfterCall: CoinAmount = self.globalState().get(tx.principal).balance
         val principalMutableStateAfterCall: MSP = self.globalState().get(tx.principal).mutableState
